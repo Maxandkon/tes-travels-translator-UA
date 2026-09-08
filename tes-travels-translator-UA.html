@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TES Travels — редактор перекладу J2ME</title>
+<style>
+:root{
+  --bg:#0F1417;
+  --bg2:#151C21;
+  --panel:#1B242A;
+  --line:#2A363E;
+  --line2:#3A4A54;
+  --txt:#E4E0D4;
+  --dim:#8C9AA3;
+  --dimmer:#5F6E77;
+  --acc:#B8934A;
+  --acc-soft:#B8934A22;
+  --warn:#D2734A;
+  --ok:#6E9C63;
+  --radius:3px;
+}
+html[data-game="stormhold"]{ --acc:#7FA352; --acc-soft:#7FA35222; }
+html[data-game="dawnstar"]{ --acc:#69AFD6; --acc-soft:#69AFD622; }
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{
+  margin:0;background:var(--bg);color:var(--txt);
+  font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+
+/* ---------- shell ---------- */
+.shell{display:flex;flex-direction:column;height:100%}
+
+header{
+  display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+  padding:12px 18px;background:var(--bg2);
+  border-bottom:1px solid var(--line);
+}
+.brand{display:flex;flex-direction:column;line-height:1.15}
+.brand b{
+  font-family:Georgia,"Times New Roman",serif;font-weight:700;
+  font-size:17px;letter-spacing:.14em;text-transform:uppercase;
+}
+.brand span{font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--dimmer)}
+
+.badge{
+  font-family:Georgia,serif;font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+  padding:5px 11px;border:1px solid var(--acc);color:var(--acc);
+  border-radius:var(--radius);background:var(--acc-soft);white-space:nowrap;
+}
+.spacer{flex:1}
+
+.btn{
+  background:transparent;border:1px solid var(--line2);color:var(--txt);
+  padding:7px 13px;border-radius:var(--radius);
+  font-size:12.5px;letter-spacing:.03em;transition:.13s;
+}
+.btn:hover:not(:disabled){border-color:var(--acc);color:var(--acc)}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn.primary{border-color:var(--acc);color:#0F1417;background:var(--acc);font-weight:600}
+.btn.primary:hover:not(:disabled){filter:brightness(1.12);color:#0F1417}
+.btn:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{
+  outline:2px solid var(--acc);outline-offset:2px}
+
+.meter{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--dim)}
+.bar{width:130px;height:5px;background:#0A0E11;border:1px solid var(--line);border-radius:2px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--acc);width:0;transition:width .25s}
+.dirty{color:var(--warn);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase}
+
+/* ---------- drop ---------- */
+#drop{
+  flex:1;display:flex;align-items:center;justify-content:center;padding:30px;
+}
+.dropcard{
+  max-width:640px;text-align:center;border:1px dashed var(--line2);
+  padding:52px 40px;border-radius:var(--radius);background:var(--bg2);
+}
+.dropcard.hot{border-color:var(--acc);background:var(--acc-soft)}
+.dropcard h1{
+  font-family:Georgia,serif;font-size:26px;font-weight:700;margin:0 0 6px;
+  letter-spacing:.05em;
+}
+.dropcard p{color:var(--dim);margin:0 0 22px;font-size:13.5px}
+.dropcard .fine{color:var(--dimmer);font-size:12px;margin-top:24px;line-height:1.7}
+.dropcard code{font-family:ui-monospace,Consolas,monospace;color:var(--acc);font-size:11.5px}
+
+/* ---------- main ---------- */
+main{flex:1;display:grid;grid-template-columns:236px minmax(0,1fr) 300px;min-height:0}
+aside,.side{overflow-y:auto;background:var(--bg2)}
+aside{border-right:1px solid var(--line)}
+.side{border-left:1px solid var(--line);padding:16px}
+
+.eyebrow{
+  font-family:Georgia,serif;font-size:10px;letter-spacing:.24em;text-transform:uppercase;
+  color:var(--dimmer);padding:14px 14px 7px;
+}
+.fitem{
+  display:block;width:100%;text-align:left;background:none;border:0;
+  border-left:2px solid transparent;padding:7px 14px;color:var(--dim);
+  font-size:12.5px;display:flex;justify-content:space-between;gap:8px;
+}
+.fitem:hover{background:#1B242A;color:var(--txt)}
+.fitem.sel{background:var(--panel);color:var(--txt);border-left-color:var(--acc)}
+.fitem .nm{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fitem .ct{font-variant-numeric:tabular-nums;font-size:11px;color:var(--dimmer);white-space:nowrap}
+.fitem.done .ct{color:var(--ok)}
+.fitem.sub .nm{padding-left:12px}
+
+/* ---------- table ---------- */
+.center{display:flex;flex-direction:column;min-width:0;min-height:0}
+.toolbar{
+  display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+  padding:10px 16px;border-bottom:1px solid var(--line);background:var(--bg2);
+}
+.toolbar input[type=search]{
+  flex:1;min-width:150px;background:#0A0E11;border:1px solid var(--line);
+  border-radius:var(--radius);padding:6px 10px;font-size:13px;
+}
+.chk{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dim);white-space:nowrap;cursor:pointer}
+.chk input{accent-color:var(--acc)}
+
+#rows{flex:1;overflow-y:auto;padding:0 0 60px}
+.row{
+  display:grid;grid-template-columns:44px minmax(0,1fr) minmax(0,1fr);
+  gap:14px;padding:11px 16px;border-bottom:1px solid var(--line);
+}
+.row:hover{background:#161E23}
+.row.active{background:#182228;box-shadow:inset 2px 0 0 var(--acc)}
+.row .idx{
+  font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--dimmer);
+  font-variant-numeric:tabular-nums;padding-top:6px;
+}
+.src{
+  font-family:ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.65;
+  white-space:pre-wrap;word-break:break-word;color:var(--dim);padding-top:4px;cursor:text;
+}
+.row.filled .src{color:var(--dimmer)}
+.row textarea{
+  width:100%;background:#0A0E11;border:1px solid var(--line);border-radius:var(--radius);
+  padding:6px 9px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.65;
+  resize:vertical;min-height:34px;overflow:hidden;
+}
+.row textarea:focus{border-color:var(--acc)}
+.row.filled textarea{border-color:#2F4234;color:#DDE7D8}
+.tag{
+  font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;border:1px solid var(--line2);
+  color:var(--dimmer);padding:1px 5px;border-radius:2px;margin-left:6px;vertical-align:2px;
+}
+.empty{padding:50px 20px;text-align:center;color:var(--dimmer);font-size:13px}
+.eyebrow.group{padding:16px 16px 6px;color:var(--acc);border-bottom:1px solid var(--line);
+  font-family:ui-monospace,Consolas,monospace;letter-spacing:.1em;text-transform:none;font-size:11px}
+
+/* ---------- preview ---------- */
+.side h3{
+  font-family:Georgia,serif;font-size:10px;letter-spacing:.24em;text-transform:uppercase;
+  color:var(--dimmer);margin:0 0 12px;font-weight:400;
+}
+.phone{
+  width:100%;max-width:216px;margin:0 auto 14px;padding:18px 20px 26px;
+  background:#20272B;border:1px solid #2E3A41;border-radius:14px;
+}
+.phone canvas{
+  display:block;width:176px;height:208px;background:#9FAF88;
+  image-rendering:pixelated;border:1px solid #0A0E11;
+}
+html[data-game="dawnstar"] .phone canvas{background:#A8BCC4}
+.pmeta{font-size:11.5px;color:var(--dim);display:flex;justify-content:space-between;margin-top:8px}
+.pmeta .over{color:var(--warn)}
+.ctrl{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--dimmer);margin-top:10px}
+.ctrl input[type=range]{flex:1;accent-color:var(--acc)}
+.note{font-size:11.5px;color:var(--dimmer);line-height:1.65;margin-top:18px;border-top:1px solid var(--line);padding-top:14px}
+.note b{color:var(--dim);font-weight:600}
+kbd{font-family:ui-monospace,monospace;font-size:10.5px;border:1px solid var(--line2);border-radius:2px;padding:0 4px}
+
+#log{
+  position:fixed;left:50%;bottom:22px;transform:translateX(-50%);
+  background:var(--panel);border:1px solid var(--acc);color:var(--txt);
+  padding:10px 18px;border-radius:var(--radius);font-size:13px;
+  box-shadow:0 8px 30px #0008;opacity:0;pointer-events:none;transition:opacity .2s;z-index:50;
+}
+#log.on{opacity:1}
+
+@media (max-width:1080px){
+  main{grid-template-columns:1fr}
+  aside{border-right:0;border-bottom:1px solid var(--line);max-height:150px}
+  .side{border-left:0;border-top:1px solid var(--line)}
+  .row{grid-template-columns:34px 1fr;gap:8px}
+  .row textarea{grid-column:2}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<header>
+  <div class="brand"><b>Travels</b><span>J2ME string editor</span></div>
+  <div class="badge" id="badge">файл не завантажено</div>
+  <div class="spacer"></div>
+  <div class="meter" id="meterWrap" hidden>
+    <span id="meterTxt">0 / 0</span>
+    <div class="bar"><i id="meterBar"></i></div>
+    <span class="dirty" id="dirtyFlag" hidden>не збережено</span>
+  </div>
+  <button class="btn" id="btnOpen">Відкрити .jar</button>
+  <button class="btn" id="btnImport" disabled>Імпорт перекладу</button>
+  <button class="btn" id="btnExport" disabled>Зберегти .json</button>
+  <button class="btn" id="btnTsv" disabled>.tsv</button>
+  <button class="btn primary" id="btnBuild" disabled>Зібрати .jar</button>
+</header>
+
+<div id="drop">
+  <div class="dropcard" id="dropcard">
+    <h1>Перетягніть сюди .jar</h1>
+    <p>The Elder Scrolls Travels: Stormhold / Dawnstar (Vir2L, 2003)</p>
+    <button class="btn primary" id="btnOpen2">Вибрати файл</button>
+    <div class="fine">
+      Читаються рядки з <code>*.dat</code>, з контейнера <code>datfiles.lmp</code>,
+      літерали з <code>*.class</code> і назва MIDlet з маніфесту.<br>
+      Усе відбувається локально у браузері — нічого нікуди не надсилається.
+    </div>
+  </div>
+</div>
+
+<main hidden id="main">
+  <aside id="files"></aside>
+
+  <div class="center">
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Пошук в оригіналі та перекладі…">
+      <label class="chk"><input type="checkbox" id="onlyTodo"> лише неперекладені</label>
+      <label class="chk"><input type="checkbox" id="allFiles"> в усіх файлах</label>
+      <label class="chk"><input type="checkbox" id="hideSvc"> сховати службові</label>
+      <span class="chk" id="shown"></span>
+    </div>
+    <div id="rows"></div>
+  </div>
+
+  <div class="side">
+    <h3>Екран 176 × 208</h3>
+    <div class="phone"><canvas id="pv" width="176" height="208"></canvas></div>
+    <div class="pmeta"><span id="pvLines">—</span><span id="pvChars"></span></div>
+    <div class="ctrl">
+      <span>шир.</span><input type="range" id="pvW" min="90" max="176" value="164"><span id="pvWv">164</span>
+    </div>
+    <div class="ctrl">
+      <span>кегль</span><input type="range" id="pvF" min="8" max="16" value="12"><span id="pvFv">12</span>
+    </div>
+    <div class="note">
+      <b>Як це працює.</b> Рядки зберігаються у форматі <code>DataInput.readUTF</code>
+      (2 байти довжини + modified UTF-8), тож кирилиця пишеться штатно й довжина може
+      змінюватись — усі зміщення перераховуються при збірці.<br><br>
+      <b>Шрифт.</b> Гра малює текст системним шрифтом пристрою. У J2ME Loader / KEmulator
+      кирилиця відображається; на живій Nokia серії 60 2003 року — залежно від прошивки.<br><br>
+      <b>Позначки.</b> <span class="tag">лог</span> — рядок за байткодом іде у
+      <code>System.out.println</code>; <span class="tag">ресурс</span> — ім'я файлу, URL
+      або ключ маніфесту, який чіпати не можна. Показано все, нічого не приховано.<br><br>
+      <b>Гарячі клавіші.</b> <kbd>Ctrl</kbd>+<kbd>S</kbd> — зберегти .json,
+      <kbd>Ctrl</kbd>+<kbd>Enter</kbd> — наступний неперекладений.
+    </div>
+  </div>
+</main>
+</div>
+
+<div id="log"></div>
+<input type="file" id="fileIn" accept=".jar,.zip" hidden>
+<input type="file" id="jsonIn" accept=".json,.tsv,.txt" hidden>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const enc = new TextEncoder(), dec = new TextDecoder();
+
+/* ══════════════ утиліти ══════════════ */
+function toast(m, ms=2600){ const l=$('#log'); l.textContent=m; l.classList.add('on');
+  clearTimeout(l._t); l._t=setTimeout(()=>l.classList.remove('on'), ms); }
+
+const CRC = (()=>{ const t=new Uint32Array(256);
+  for(let i=0;i<256;i++){ let c=i; for(let k=0;k<8;k++) c = c&1 ? 0xEDB88320^(c>>>1) : c>>>1; t[i]=c>>>0; }
+  return t; })();
+function crc32(b){ let c=0xFFFFFFFF; for(let i=0;i<b.length;i++) c=CRC[(c^b[i])&255]^(c>>>8); return (c^0xFFFFFFFF)>>>0; }
+
+async function inflateRaw(b){
+  const s = new Blob([b]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(s).arrayBuffer());
+}
+async function deflateRaw(b){
+  const s = new Blob([b]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(s).arrayBuffer());
+}
+
+/* ══════════════ ZIP ══════════════ */
+async function zipRead(buf){
+  const d = new Uint8Array(buf), v = new DataView(buf);
+  let eo = -1;
+  for(let i=d.length-22;i>=Math.max(0,d.length-66000);i--) if(v.getUint32(i,true)===0x06054b50){ eo=i; break; }
+  if(eo<0) throw new Error('Це не ZIP/JAR — не знайдено кінцевий запис каталогу.');
+  const n = v.getUint16(eo+10,true), cdOff = v.getUint32(eo+16,true);
+  const out=[]; let p=cdOff;
+  for(let i=0;i<n;i++){
+    if(v.getUint32(p,true)!==0x02014b50) throw new Error('Пошкоджений центральний каталог.');
+    const meth=v.getUint16(p+10,true), csz=v.getUint32(p+20,true), usz=v.getUint32(p+24,true);
+    const nl=v.getUint16(p+28,true), el=v.getUint16(p+30,true), cl=v.getUint16(p+32,true);
+    const lo=v.getUint32(p+42,true);
+    const name=dec.decode(d.subarray(p+46,p+46+nl));
+    p += 46+nl+el+cl;
+    const lnl=v.getUint16(lo+26,true), lel=v.getUint16(lo+28,true);
+    const ds=lo+30+lnl+lel;
+    const raw=d.subarray(ds, ds+csz);
+    let data;
+    if(name.endsWith('/')) data=new Uint8Array(0);
+    else if(meth===0) data=raw.slice();
+    else if(meth===8) data=await inflateRaw(raw);
+    else throw new Error('Непідтримуваний метод стиснення: '+meth+' у '+name);
+    if(!name.endsWith('/') && data.length!==usz) console.warn('розмір не збігається', name);
+    out.push({name, data, dir:name.endsWith('/')});
+  }
+  return out;
+}
+
+async function zipWrite(entries){
+  const parts=[], cd=[]; let off=0;
+  const dosTime = 0x9800, dosDate = 0x2772; // 2003-11-18 19:00
+  for(const e of entries){
+    const nameB = enc.encode(e.name);
+    let data = e.data, meth = 0, comp = data;
+    if(!e.dir && data.length>60){
+      try{ const z = await deflateRaw(data); if(z.length < data.length){ comp=z; meth=8; } }catch(_){}
+    }
+    const crc = e.dir?0:crc32(data);
+    const lh = new Uint8Array(30+nameB.length), lv = new DataView(lh.buffer);
+    lv.setUint32(0,0x04034b50,true); lv.setUint16(4,20,true); lv.setUint16(6,0,true);
+    lv.setUint16(8,meth,true); lv.setUint16(10,dosTime,true); lv.setUint16(12,dosDate,true);
+    lv.setUint32(14,crc,true); lv.setUint32(18,comp.length,true); lv.setUint32(22,data.length,true);
+    lv.setUint16(26,nameB.length,true); lv.setUint16(28,0,true);
+    lh.set(nameB,30);
+    parts.push(lh, comp);
+    const ch = new Uint8Array(46+nameB.length), cv = new DataView(ch.buffer);
+    cv.setUint32(0,0x02014b50,true); cv.setUint16(4,20,true); cv.setUint16(6,20,true);
+    cv.setUint16(8,0,true); cv.setUint16(10,meth,true);
+    cv.setUint16(12,dosTime,true); cv.setUint16(14,dosDate,true);
+    cv.setUint32(16,crc,true); cv.setUint32(20,comp.length,true); cv.setUint32(24,data.length,true);
+    cv.setUint16(28,nameB.length,true);
+    cv.setUint32(38, e.dir?0x10:0, true);
+    cv.setUint32(42,off,true); ch.set(nameB,46);
+    cd.push(ch);
+    off += lh.length + comp.length;
+  }
+  const cdStart=off; let cdLen=0; for(const c of cd) cdLen+=c.length;
+  const eocd=new Uint8Array(22), ev=new DataView(eocd.buffer);
+  ev.setUint32(0,0x06054b50,true); ev.setUint16(8,cd.length,true); ev.setUint16(10,cd.length,true);
+  ev.setUint32(12,cdLen,true); ev.setUint32(16,cdStart,true);
+  return new Blob([...parts,...cd,eocd],{type:'application/java-archive'});
+}
+
+/* ══════════════ рядки .dat (readUTF-сканер) ══════════════ */
+function utf8Text(b){
+  let s; try{ s = dec.decode(b, {stream:false}); }catch(_){ return null; }
+  if(enc.encode(s).length !== b.length) return null;      // відкидаємо невалідний UTF-8
+  for(const ch of s){ const o=ch.codePointAt(0);
+    if((o<32 && ch!=='\n' && ch!=='\r' && ch!=='\t') || o===127) return null; }
+  return s;
+}
+function candidate(d,p){
+  if(p+2>d.length) return null;
+  const L=(d[p]<<8)|d[p+1];
+  if(L===0 || p+2+L>d.length) return null;
+  const s=utf8Text(d.subarray(p+2,p+2+L));
+  return s===null?null:{len:L, s};
+}
+function scanDat(d){
+  const toks=[]; let p=0, raw=[], prevStr=false;
+  while(p<d.length){
+    const c=candidate(d,p);
+    let ok=false;
+    if(c){ const nxt=p+2+c.len; if(prevStr || nxt===d.length || candidate(d,nxt)) ok=true; }
+    if(ok){
+      if(raw.length){ toks.push({t:'raw', b:Uint8Array.from(raw)}); raw=[]; }
+      toks.push({t:'str', s:c.s}); p+=2+c.len; prevStr=true;
+    } else { raw.push(d[p]); p++; prevStr=false; }
+  }
+  if(raw.length) toks.push({t:'raw', b:Uint8Array.from(raw)});
+  return toks;
+}
+function buildDat(toks, edits){
+  const chunks=[]; let si=0, total=0;
+  for(const t of toks){
+    if(t.t==='raw'){ chunks.push(t.b); total+=t.b.length; }
+    else{
+      const s = edits.has(si) ? edits.get(si) : t.s;
+      const b = encodeJavaUtf(s);
+      const h = new Uint8Array(2+b.length); h[0]=b.length>>8; h[1]=b.length&255; h.set(b,2);
+      chunks.push(h); total+=h.length; si++;
+    }
+  }
+  const out=new Uint8Array(total); let o=0; for(const c of chunks){ out.set(c,o); o+=c.length; }
+  return out;
+}
+function encodeJavaUtf(s){
+  for(const ch of s){ const o=ch.codePointAt(0);
+    if(o===0) throw new Error('Символ U+0000 не підтримується.');
+    if(o>0xFFFF) throw new Error('Символ поза BMP не підтримується: '+ch); }
+  const b = enc.encode(s);
+  if(b.length>65535) throw new Error('Рядок довший за 65535 байтів.');
+  return b;
+}
+
+/* ══════════════ LMP ══════════════ */
+function parseLmp(d){
+  const v=new DataView(d.buffer, d.byteOffset, d.byteLength);
+  const dir=[]; let p=0;
+  while(d[p]===0x2D){
+    let e=p+1; while(e<d.length && d[e]!==0x2D) e++;
+    if(e>=d.length) break;
+    const name=dec.decode(d.subarray(p+1,e)); p=e+1;
+    if(p+6>d.length) break;
+    dir.push({name, off:v.getUint32(p,false), len:v.getUint16(p+4,false)}); p+=6;
+    if(dir[0].off<=p) break;
+  }
+  if(!dir.length || dir[0].off>d.length) return null;
+  return {dir, headLen:dir[0].off};
+}
+function buildLmp(orig, lmp, parts){
+  const head=new Uint8Array(lmp.headLen); head.set(orig.subarray(0,lmp.headLen));
+  const hv=new DataView(head.buffer);
+  let p=0, off=lmp.headLen; const body=[];
+  for(let i=0;i<lmp.dir.length;i++){
+    while(head[p]!==0x2D) p++;
+    let e=p+1; while(head[e]!==0x2D) e++;
+    p=e+1;
+    const data=parts[i];
+    if(data.length>65535) throw new Error('Файл '+lmp.dir[i].name+' перевищив 65535 байтів у .lmp');
+    hv.setUint32(p, off, false); hv.setUint16(p+4, data.length, false); p+=6;
+    body.push(data); off+=data.length;
+  }
+  const out=new Uint8Array(off); out.set(head,0);
+  let o=lmp.headLen; for(const b of body){ out.set(b,o); o+=b.length; }
+  return out;
+}
+
+/* ══════════════ .class constant pool ══════════════ */
+const CPSZ={7:2,8:2,16:2,19:2,20:2,15:3,3:4,4:4,9:4,10:4,11:4,12:4,17:4,18:4};
+function parseClass(d){
+  const v=new DataView(d.buffer,d.byteOffset,d.byteLength);
+  if(v.getUint32(0)!==0xCAFEBABE) return null;
+  const n=v.getUint16(8); let p=10,i=1; const cp=[];
+  try{
+    while(i<n){
+      const tag=d[p];
+      if(tag===1){ const L=v.getUint16(p+1); cp[i]={tag:1,s:p,e:p+3+L,text:utf8Text(d.subarray(p+3,p+3+L))}; p+=3+L; }
+      else if(tag===5||tag===6){ cp[i]={tag,s:p,e:p+9}; p+=9; i++; }
+      else {
+        const sz=CPSZ[tag]; if(sz===undefined) return null;
+        const e={tag,s:p,e:p+1+sz};
+        if(sz===2) e.ref=v.getUint16(p+1);
+        if(sz===4){ e.a=v.getUint16(p+1); e.b=v.getUint16(p+3); }
+        cp[i]=e; p+=1+sz;
+      }
+      i++;
+    }
+  }catch(_){ return null; }
+  const lits=new Set();
+  for(let k=1;k<n;k++) if(cp[k] && cp[k].tag===8) lits.add(cp[k].ref);
+  const ids=[...lits].filter(k=>cp[k] && cp[k].tag===1 && cp[k].text!==null).sort((a,b)=>a-b);
+  const cls={cp, n, cpEnd:p, ids};
+  try{ cls.debug = findDebugStrings(d, v, cls); }catch(_){ cls.debug = new Set(); }
+  return cls;
+}
+
+/* Рядок вважається налагоджувальним, якщо його ldc потрапляє у System.out.println
+   (напряму або через ланцюжок StringBuffer.append). Це факт із байткоду, не здогад. */
+const OP_NONE=new Set(), OP_1=new Set([0x10,0x12,0x15,0x16,0x17,0x18,0x19,0x36,0x37,0x38,0x39,0x3a,0xa9,0xbc]),
+      OP_2=new Set([0x11,0x13,0x14,0x84,0xb2,0xb3,0xb4,0xb5,0xb6,0xb7,0xb8,0xbb,0xbd,0xc0,0xc1,0xc6,0xc7]),
+      OP_4=new Set([0xb9,0xba,0xc8,0xc9]);
+(function(){ const add=(a,b)=>{for(let k=a;k<=b;k++) OP_NONE.add(k);};
+  add(0x00,0x0f); add(0x1a,0x35); add(0x3b,0x83); add(0x85,0x98); add(0xac,0xb1);
+  [0xbe,0xbf,0xc2,0xc3].forEach(k=>OP_NONE.add(k));
+  for(let k=0x99;k<=0xa8;k++) OP_2.add(k); })();
+
+function findDebugStrings(d, v, cls){
+  const {cp,n}=cls;
+  const utf=k=>(cp[k] && cp[k].tag===1) ? cp[k].text : '';
+  const sinks=new Set(), chain=new Set();
+  for(let k=1;k<n;k++){
+    const e=cp[k]; if(!e || (e.tag!==9 && e.tag!==10 && e.tag!==11)) continue;
+    const clsName=utf(cp[e.a] && cp[e.a].ref), nm=utf(cp[e.b] && cp[e.b].a);
+    if(nm==='println'||nm==='print') sinks.add(k);
+    if(clsName==='java/lang/StringBuffer'||clsName==='java/lang/StringBuilder'
+       ||(clsName==='java/lang/String'&&nm==='valueOf')) chain.add(k);
+  }
+  if(!sinks.size) return new Set();
+
+  let p=cls.cpEnd+6;
+  p += 2 + 2*v.getUint16(p);                       // interfaces
+  const codes=[];
+  const attrs=(p, collect)=>{ const c=v.getUint16(p); p+=2;
+    for(let j=0;j<c;j++){ const nm=utf(v.getUint16(p)), len=v.getUint32(p+2);
+      if(collect && nm==='Code'){ const m=p+6, cl=v.getUint32(m+4); codes.push(d.subarray(m+8, m+8+cl)); }
+      p+=6+len; }
+    return p; };
+  for(const collect of [false,true]){              // fields, methods
+    const c=v.getUint16(p); p+=2;
+    for(let j=0;j<c;j++){ p+=6; p=attrs(p, collect); } }
+
+  const out=new Set();
+  for(const code of codes){
+    const cv=new DataView(code.buffer, code.byteOffset, code.byteLength);
+    let i=0, pend=[];
+    while(i<code.length){
+      const op=code[i];
+      if(op===0x12 || op===0x13){
+        const idx = op===0x12 ? code[i+1] : cv.getUint16(i+1);
+        if(cp[idx] && cp[idx].tag===8) pend.push(cp[idx].ref);
+        i += op===0x12 ? 2 : 3; continue;
+      }
+      if(op>=0xb6 && op<=0xb9){
+        const ref=cv.getUint16(i+1);
+        if(sinks.has(ref)){ pend.forEach(x=>out.add(x)); pend=[]; }
+        else if(!chain.has(ref)) pend=[];
+        i += op===0xb9 ? 5 : 3; continue;
+      }
+      if(op===0xb3||op===0xb5||op===0x53||(op>=0x36&&op<=0x3a)||(op>=0x4b&&op<=0x4e)) pend=[];
+      if(op===0xc4){ i += code[i+1]===0x84 ? 6 : 4; continue; }
+      if(op===0xaa||op===0xab){
+        let j=i+1; while(j%4) j++;
+        if(op===0xaa){ const lo=cv.getInt32(j+4), hi=cv.getInt32(j+8); i=j+12+4*(hi-lo+1); }
+        else { i=j+8+8*cv.getInt32(j+4); }
+        continue;
+      }
+      if(OP_NONE.has(op)) i+=1;
+      else if(OP_1.has(op)) i+=2;
+      else if(OP_2.has(op)) i+=3;
+      else if(OP_4.has(op)) i+=5;
+      else if(op===0xc5) i+=4;
+      else throw new Error('opcode');
+    }
+  }
+  return out;
+}
+function buildClass(orig, cls, edits){
+  const chunks=[orig.subarray(0,10)]; let total=10;
+  for(let i=1;i<cls.n;i++){
+    const e=cls.cp[i]; if(!e) continue;
+    if(e.tag===1 && edits.has(i)){
+      const b=encodeJavaUtf(edits.get(i));
+      const h=new Uint8Array(3+b.length); h[0]=1; h[1]=b.length>>8; h[2]=b.length&255; h.set(b,3);
+      chunks.push(h); total+=h.length;
+    } else { const c=orig.subarray(e.s,e.e); chunks.push(c); total+=c.length; }
+  }
+  const tail=orig.subarray(cls.cpEnd); chunks.push(tail); total+=tail.length;
+  const out=new Uint8Array(total); let o=0; for(const c of chunks){ out.set(c,o); o+=c.length; }
+  return out;
+}
+
+/* ══════════════ службові рядки ══════════════
+   Позначаються ЛИШЕ ті, що напевно не є ігровим текстом: імена ресурсів,
+   URL, ключі маніфесту, порожні рядки. Плюс налагоджувальні з байткоду.
+   Нічого не ховається за здогадками про вміст (двокрапка в кінці, довжина тощо). */
+const RES_RE = [
+  /^\/?[\w.\-]+\.(png|dat|lmp|cus|jar|class|txt)$/i,   // імена файлів
+  /^https?:\/\//i,                                     // URL
+  /^[A-Z][A-Za-z]*(-[A-Za-z]+)+$/,                     // ключі виду Pluto-Server-URL
+  /^\s*$/                                              // порожні
+];
+function isRes(s){ return RES_RE.some(r=>r.test(s)); }
+
+/* ══════════════ стан ══════════════ */
+const P = { jarName:'', entries:[], nodes:[], trans:new Map(), sel:0, dirty:false, game:'' };
+const key = (path,id)=>path+'\u0000'+id;
+
+function detectGame(entries){
+  const mf = entries.find(e=>/MANIFEST\.MF$/i.test(e.name));
+  const t = mf ? dec.decode(mf.data) : '';
+  if(/dawnstar/i.test(t)) return {id:'dawnstar', label:'Dawnstar'};
+  if(entries.some(e=>e.name==='npcstrings.dat')) return {id:'stormhold', label:'Stormhold'};
+  return {id:'', label:'невідома збірка'};
+}
+
+async function loadJar(file){
+  if(P.dirty && !confirm('Незбережений переклад буде втрачено. Відкрити інший .jar?')) return;
+  let entries;
+  try{ entries = await zipRead(await file.arrayBuffer()); }
+  catch(err){ toast('Помилка: '+err.message, 5000); return; }
+
+  P.jarName=file.name; P.entries=entries; P.nodes=[]; P.trans.clear(); P.sel=0; P.dirty=false;
+  const g = detectGame(entries); P.game=g.id;
+  document.documentElement.dataset.game = g.id;
+  $('#badge').textContent = g.label + ' · ' + file.name;
+
+  for(const e of entries){
+    if(e.dir) continue;
+    const nm = e.name;
+    if(/\.lmp$/i.test(nm)){
+      const lmp = parseLmp(e.data);
+      if(!lmp) continue;
+      e.lmp = lmp; e.parts = [];
+      lmp.dir.forEach((de,i)=>{
+        const sub = e.data.subarray(de.off, de.off+de.len);
+        e.parts.push({raw:sub, toks:null});
+        if(!/\.dat$/i.test(de.name)) return;
+        const toks = scanDat(sub);
+        e.parts[i].toks = toks;
+        addNode(nm+'/'+de.name, toks, e, i, true);
+      });
+    } else if(/\.dat$/i.test(nm)){
+      const toks = scanDat(e.data); e.toks = toks;
+      addNode(nm, toks, e, -1, false);
+    } else if(/MANIFEST\.MF$/i.test(nm)){
+      const lines = dec.decode(e.data).split(/\r?\n/);
+      const slots = [];
+      lines.forEach((L,li)=>{
+        let m;
+        if((m=/^MIDlet-Name:\s*(.+?)\s*$/.exec(L))) slots.push({li, pre:'MIDlet-Name: ', post:'', src:m[1]});
+        else if((m=/^MIDlet-1:\s*([^,]+)(,.*)$/.exec(L))) slots.push({li, pre:'MIDlet-1: ', post:m[2], src:m[1].trim()});
+      });
+      if(!slots.length) continue;
+      e.mf = {lines, slots};
+      P.nodes.push({path:nm, kind:'mf', entry:e,
+        strings: slots.map((s,i)=>({id:i, src:s.src, svc:false, why:''}))});
+    } else if(/\.class$/i.test(nm)){
+      const cls = parseClass(e.data);
+      if(!cls || !cls.ids.length) continue;
+      e.cls = cls;
+      const strings = cls.ids.map(id=>({id, src:cls.cp[id].text,
+        svc: cls.debug.has(id) || isRes(cls.cp[id].text),
+        why: cls.debug.has(id) ? 'лог' : 'ресурс'}));
+      P.nodes.push({path:nm, kind:'class', entry:e, strings});
+    }
+  }
+  const ORD={mf:0, dat:1, class:2};
+  P.nodes.sort((a,b)=>ORD[a.kind]-ORD[b.kind]);
+
+  const total = P.nodes.reduce((s,n)=>s+n.strings.length,0);
+  if(!total){ toast('У цьому .jar не знайдено рядків відомого формату.', 5000); return; }
+
+  $('#drop').hidden=true; $('#main').hidden=false; $('#meterWrap').hidden=false;
+  ['#btnImport','#btnExport','#btnBuild','#btnTsv'].forEach(s=>$(s).disabled=false);
+  renderFiles(); renderRows(); updMeter();
+  toast('Завантажено: '+total+' рядків у '+P.nodes.length+' файлах');
+}
+function addNode(path, toks, entry, lmpIdx, inLmp){
+  const strings=[]; let i=0;
+  for(const t of toks) if(t.t==='str'){ strings.push({id:i, src:t.s, svc:isRes(t.s), why:'ресурс'}); i++; }
+  if(strings.length) P.nodes.push({path, kind:'dat', entry, lmpIdx, inLmp, toks, strings});
+}
+
+/* ══════════════ рендер ══════════════ */
+function nodeStats(n){
+  let done=0, tot=0;
+  for(const s of n.strings){ if(s.svc && $('#hideSvc').checked) continue; tot++;
+    if(P.trans.get(key(n.path,s.id))) done++; }
+  return {done, tot};
+}
+function renderFiles(){
+  const box=$('#files'); box.innerHTML='';
+  const groups=[['Маніфест',n=>n.kind==='mf'],['Дані',n=>n.kind==='dat'],['Код (.class)',n=>n.kind==='class']];
+  for(const [title,f] of groups){
+    const list=P.nodes.filter(f); if(!list.length) continue;
+    const h=document.createElement('div'); h.className='eyebrow'; h.textContent=title; box.appendChild(h);
+    list.forEach(n=>{
+      const i=P.nodes.indexOf(n);
+      const st=nodeStats(n);
+      const b=document.createElement('button');
+      b.className='fitem'+(i===P.sel?' sel':'')+(st.tot&&st.done===st.tot?' done':'')+(n.inLmp?' sub':'');
+      b.innerHTML='<span class="nm"></span><span class="ct">'+st.done+'/'+st.tot+'</span>';
+      b.querySelector('.nm').textContent = n.inLmp ? n.path.split('/').pop() : n.path;
+      b.title=n.path;
+      b.onclick=()=>{ P.sel=i; renderFiles(); renderRows(); };
+      box.appendChild(b);
+    });
+  }
+}
+function autosize(ta){ ta.style.height='auto'; ta.style.height=Math.max(34, ta.scrollHeight+2)+'px'; }
+
+function renderRows(){
+  const box=$('#rows'); box.innerHTML='';
+  if(!P.nodes.length) return;
+  const q=$('#q').value.trim().toLowerCase();
+  const todo=$('#onlyTodo').checked, hide=$('#hideSvc').checked, all=$('#allFiles').checked;
+  const scope = all ? P.nodes : [P.nodes[P.sel]].filter(Boolean);
+  const LIMIT = 600;
+  let shown=0, pool=0, cut=false, lastPath='';
+  const frag=document.createDocumentFragment();
+
+  for(const n of scope){
+    for(const s of n.strings){
+      if(s.svc && hide) continue;
+      const cur=P.trans.get(key(n.path,s.id))||'';
+      if(todo && cur) continue;
+      if(q && !s.src.toLowerCase().includes(q) && !cur.toLowerCase().includes(q)) continue;
+      pool++;
+      if(shown>=LIMIT){ cut=true; continue; }
+      shown++;
+
+      if(all && n.path!==lastPath){
+        lastPath=n.path;
+        const h=document.createElement('div'); h.className='eyebrow group'; h.textContent=n.path;
+        frag.appendChild(h);
+      }
+      const row=document.createElement('div');
+      row.className='row'+(cur?' filled':'');
+      const idx=document.createElement('div'); idx.className='idx'; idx.textContent=s.id;
+      const src=document.createElement('div'); src.className='src'; src.textContent=s.src;
+      if(s.svc){ const t=document.createElement('span'); t.className='tag'; t.textContent=s.why; src.appendChild(t); }
+      src.title='Подвійний клік — скопіювати оригінал у поле перекладу';
+      const ta=document.createElement('textarea'); ta.value=cur; ta.spellcheck=false;
+      ta.placeholder='переклад…';
+      ta.oninput=()=>{
+        const v=ta.value;
+        if(v) P.trans.set(key(n.path,s.id), v); else P.trans.delete(key(n.path,s.id));
+        row.classList.toggle('filled', !!v);
+        autosize(ta); markDirty(); updMeter(); refreshCount(n);
+        drawPreview(v||s.src);
+      };
+      ta.onfocus=()=>{
+        box.querySelectorAll('.row.active').forEach(r=>r.classList.remove('active'));
+        row.classList.add('active'); drawPreview(ta.value||s.src);
+      };
+      ta.onkeydown=e=>{ if(e.ctrlKey&&e.key==='Enter'){ e.preventDefault(); nextEmpty(row); } };
+      src.ondblclick=()=>{ if(!ta.value){ ta.value=s.src; ta.dispatchEvent(new Event('input')); ta.focus(); } };
+      row.append(idx, src, ta);
+      frag.appendChild(row);
+    }
+  }
+  box.appendChild(frag);
+  const total = scope.reduce((a,n)=>a+n.strings.length,0);
+  $('#shown').textContent = pool+' з '+total + (all?' (усі файли)':'');
+  if(cut){ const m=document.createElement('div'); m.className='empty';
+    m.textContent='Показано перші '+LIMIT+'. Звузьте пошук, щоб побачити решту.'; box.appendChild(m); }
+  if(!pool) box.innerHTML='<div class="empty">Нічого не знайдено за цим фільтром.</div>';
+  box.querySelectorAll('textarea').forEach(autosize);
+}
+function nextEmpty(from){
+  let r=from.nextElementSibling;
+  while(r){ const ta=r.querySelector('textarea'); if(ta && !ta.value){ ta.focus(); ta.scrollIntoView({block:'center'}); return; } r=r.nextElementSibling; }
+  toast('Далі порожніх немає');
+}
+function refreshCount(n){
+  const b=[...$('#files').querySelectorAll('.fitem')].find(el=>el.title===n.path);
+  if(!b) return;
+  const st=nodeStats(n);
+  b.querySelector('.ct').textContent=st.done+'/'+st.tot;
+  b.classList.toggle('done', st.tot>0 && st.done===st.tot);
+}
+function updMeter(){
+  let done=0, tot=0;
+  const hide=$('#hideSvc').checked;
+  for(const n of P.nodes) for(const s of n.strings){
+    if(s.svc && hide) continue; tot++; if(P.trans.get(key(n.path,s.id))) done++;
+  }
+  $('#meterTxt').textContent=done+' / '+tot;
+  $('#meterBar').style.width=(tot?done/tot*100:0)+'%';
+}
+function markDirty(){ P.dirty=true; $('#dirtyFlag').hidden=false; }
+
+/* ══════════════ прев'ю екрана ══════════════ */
+const pv=$('#pv'), pvc=pv.getContext('2d');
+function drawPreview(text){
+  const W=+$('#pvW').value, F=+$('#pvF').value;
+  pvc.clearRect(0,0,176,208);
+  pvc.font = F+'px system-ui, sans-serif';
+  pvc.textBaseline='top';
+  const lh=Math.round(F*1.25);
+  const words=(text||'').split(/\s+/).filter(Boolean);
+  const lines=[]; let cur='';
+  for(const w of words){
+    const t = cur?cur+' '+w:w;
+    if(pvc.measureText(t).width<=W) cur=t;
+    else { if(cur) lines.push(cur); cur=w;
+      while(pvc.measureText(cur).width>W && cur.length>1){
+        let i=cur.length; while(i>1 && pvc.measureText(cur.slice(0,i)).width>W) i--;
+        lines.push(cur.slice(0,i)); cur=cur.slice(i);
+      } }
+  }
+  if(cur) lines.push(cur);
+  const x=Math.floor((176-W)/2);
+  pvc.fillStyle='#2B3524';
+  if(P.game==='dawnstar') pvc.fillStyle='#1E2C33';
+  lines.forEach((l,i)=>{ if(i*lh+lh<=208) pvc.fillText(l, x, 4+i*lh); });
+  const maxLines=Math.floor((208-4)/lh);
+  $('#pvLines').textContent = lines.length+' рядк. (вміщується '+maxLines+')';
+  $('#pvLines').className = lines.length>maxLines?'over':'';
+  $('#pvChars').textContent = (text||'').length+' симв. / '+enc.encode(text||'').length+' Б';
+}
+
+/* ══════════════ імпорт / експорт ══════════════ */
+function download(blob, name){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name;
+  a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
+function exportJson(){
+  const items=[];
+  for(const n of P.nodes) for(const s of n.strings){
+    const v=P.trans.get(key(n.path,s.id)); if(v) items.push({f:n.path, i:s.id, src:s.src, dst:v});
+  }
+  download(new Blob([JSON.stringify({jar:P.jarName, game:P.game, count:items.length, items},null,1)],
+    {type:'application/json'}), P.jarName.replace(/\.jar$/i,'')+'.translation.json');
+  P.dirty=false; $('#dirtyFlag').hidden=true;
+  toast('Збережено '+items.length+' рядків');
+}
+function exportTsv(){
+  const esc=s=>s.replace(/\\/g,'\\\\').replace(/\t/g,'\\t').replace(/\r?\n/g,'\\n');
+  const L=['file\tid\tsource\ttarget'];
+  for(const n of P.nodes) for(const s of n.strings){
+    if(s.svc && $('#hideSvc').checked) continue;
+    L.push([n.path, s.id, esc(s.src), esc(P.trans.get(key(n.path,s.id))||'')].join('\t'));
+  }
+  download(new Blob(['\ufeff'+L.join('\n')],{type:'text/tab-separated-values'}),
+    P.jarName.replace(/\.jar$/i,'')+'.tsv');
+}
+function applyItems(items){
+  const bySrc=new Map();
+  for(const n of P.nodes) for(const s of n.strings){
+    if(!bySrc.has(s.src)) bySrc.set(s.src, []);
+    bySrc.get(s.src).push([n.path, s.id]);
+  }
+  let exact=0, fuzzy=0, miss=0;
+  for(const it of items){
+    if(!it.dst) continue;
+    const n=P.nodes.find(x=>x.path===it.f);
+    if(n && n.strings.some(s=>s.id===it.i && s.src===it.src)){ P.trans.set(key(it.f,it.i), it.dst); exact++; continue; }
+    const alt=bySrc.get(it.src);
+    if(alt){ for(const [p,id] of alt) P.trans.set(key(p,id), it.dst); fuzzy++; }
+    else miss++;
+  }
+  renderFiles(); renderRows(); updMeter(); markDirty();
+  toast('Застосовано: '+exact+' точно, '+fuzzy+' за текстом оригіналу, '+miss+' не знайдено', 5000);
+}
+function parseTsv(txt){
+  const un=s=>s.replace(/\\n/g,'\n').replace(/\\t/g,'\t').replace(/\\\\/g,'\\');
+  return txt.replace(/^\ufeff/,'').split(/\r?\n/).slice(1).filter(Boolean).map(l=>{
+    const c=l.split('\t'); return {f:c[0], i:+c[1], src:un(c[2]||''), dst:un(c[3]||'')};
+  });
+}
+
+/* ══════════════ збірка ══════════════ */
+async function build(){
+  $('#btnBuild').disabled=true; $('#btnBuild').textContent='Збираю…';
+  try{
+    const editsFor=path=>{ const m=new Map();
+      for(const [k,v] of P.trans){ const [p,id]=k.split('\u0000'); if(p===path) m.set(+id, v); }
+      return m; };
+    const out=[];
+    for(const e of P.entries){
+      if(e.dir){ out.push({name:e.name, data:new Uint8Array(0), dir:true}); continue; }
+      let data=e.data;
+      if(e.lmp){
+        const parts=e.parts.map((pt,i)=>{
+          if(!pt.toks) return pt.raw;
+          const m=editsFor(e.name+'/'+e.lmp.dir[i].name);
+          return m.size?buildDat(pt.toks,m):pt.raw;
+        });
+        if(e.parts.some((pt,i)=>pt.toks && editsFor(e.name+'/'+e.lmp.dir[i].name).size))
+          data=buildLmp(e.data, e.lmp, parts);
+      } else if(e.toks){
+        const m=editsFor(e.name); if(m.size) data=buildDat(e.toks,m);
+      } else if(e.cls){
+        const m=editsFor(e.name); if(m.size) data=buildClass(e.data, e.cls, m);
+      } else if(e.mf){
+        const m=editsFor(e.name);
+        if(m.size){
+          const lines=e.mf.lines.slice();
+          e.mf.slots.forEach((sl,i)=>{ if(m.has(i)) lines[sl.li]=sl.pre+m.get(i)+sl.post; });
+          data=enc.encode(lines.join('\r\n'));
+        }
+      }
+      out.push({name:e.name, data, dir:false});
+    }
+    const blob=await zipWrite(out);
+    download(blob, P.jarName.replace(/\.jar$/i,'')+'_uk.jar');
+    toast('Готово: '+(blob.size/1024).toFixed(0)+' КБ');
+  }catch(err){ toast('Помилка збірки: '+err.message, 6000); console.error(err); }
+  $('#btnBuild').disabled=false; $('#btnBuild').textContent='Зібрати .jar';
+}
+
+/* ══════════════ події ══════════════ */
+$('#btnOpen').onclick = $('#btnOpen2').onclick = ()=>$('#fileIn').click();
+$('#fileIn').onchange = e=>{ if(e.target.files[0]) loadJar(e.target.files[0]); e.target.value=''; };
+$('#btnExport').onclick = exportJson;
+$('#btnTsv').onclick = exportTsv;
+$('#btnBuild').onclick = build;
+$('#btnImport').onclick = ()=>$('#jsonIn').click();
+$('#jsonIn').onchange = async e=>{
+  const f=e.target.files[0]; e.target.value=''; if(!f) return;
+  const txt=await f.text();
+  try{ applyItems(f.name.endsWith('.json') ? JSON.parse(txt).items : parseTsv(txt)); }
+  catch(err){ toast('Не вдалося прочитати файл: '+err.message, 5000); }
+};
+$('#q').oninput = renderRows;
+$('#onlyTodo').onchange = renderRows;
+$('#hideSvc').onchange = ()=>{ renderFiles(); renderRows(); updMeter(); };
+$('#allFiles').onchange = renderRows;
+$('#pvW').oninput = e=>{ $('#pvWv').textContent=e.target.value; redrawActive(); };
+$('#pvF').oninput = e=>{ $('#pvFv').textContent=e.target.value; redrawActive(); };
+function redrawActive(){ const a=$('#rows .row.active'); drawPreview(a? (a.querySelector('textarea').value||a.querySelector('.src').textContent) : ''); }
+
+const dc=$('#dropcard');
+['dragenter','dragover'].forEach(t=>document.addEventListener(t,e=>{e.preventDefault(); dc.classList.add('hot');}));
+['dragleave','drop'].forEach(t=>document.addEventListener(t,e=>{e.preventDefault(); if(t==='dragleave'&&e.relatedTarget) return; dc.classList.remove('hot');}));
+document.addEventListener('drop', e=>{ const f=e.dataTransfer.files[0]; if(f) loadJar(f); });
+
+document.addEventListener('keydown', e=>{
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='s'){ e.preventDefault(); if(P.nodes.length) exportJson(); }
+});
+window.addEventListener('beforeunload', e=>{ if(P.dirty){ e.preventDefault(); e.returnValue=''; } });
+
+if(typeof DecompressionStream==='undefined')
+  toast('Браузер не підтримує DecompressionStream — потрібен Chrome 103+, Firefox 113+ або Safari 16.4+', 9000);
+drawPreview('');
+</script>
+</body>
+</html>
