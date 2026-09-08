@@ -153,6 +153,14 @@ aside{border-right:1px solid var(--line)}
   color:var(--dimmer);padding:1px 5px;border-radius:2px;margin-left:6px;vertical-align:2px;
 }
 .empty{padding:50px 20px;text-align:center;color:var(--dimmer);font-size:13px}
+.imgpane{display:flex;gap:26px;flex-wrap:wrap;padding:22px 16px 6px}
+.imgcol{display:flex;flex-direction:column;gap:6px}
+.imgcol img{image-rendering:pixelated;background:
+  repeating-conic-gradient(#20272B 0 25%,#171E22 0 50%) 0 0/14px 14px;
+  border:1px solid var(--line2);max-width:520px;transform-origin:top left}
+.imgcol .eyebrow{padding:0}
+.imgmeta{font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--dimmer)}
+.imgbar{display:flex;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .eyebrow.group{padding:16px 16px 6px;color:var(--acc);border-bottom:1px solid var(--line);
   font-family:ui-monospace,Consolas,monospace;letter-spacing:.1em;text-transform:none;font-size:11px}
 
@@ -258,6 +266,10 @@ kbd{font-family:ui-monospace,monospace;font-size:10.5px;border:1px solid var(--l
       змінюватись — усі зміщення перераховуються при збірці.<br><br>
       <b>Шрифт.</b> Гра малює текст системним шрифтом пристрою. У J2ME Loader / KEmulator
       кирилиця відображається; на живій Nokia серії 60 2003 року — залежно від прошивки.<br><br>
+      <b>Компас.</b> Літери сторін світу — не рядок, а масив <code>char[5]</code>
+      у <code>&lt;clinit&gt;</code>. Малюються через <code>drawChar</code>, тому
+      вміщується рівно ОДИН символ на сторону; двобуквені «Пн/Пд» не влізуть.
+      Змінюються лише ці чотири інструкції, решта методу байт у байт.<br><br>
       <b>Позначки.</b> <span class="tag">лог</span> — рядок за байткодом іде у
       <code>System.out.println</code>; <span class="tag">ресурс</span> — ім'я файлу, URL
       або ключ маніфесту, який чіпати не можна. Показано все, нічого не приховано.<br><br>
@@ -558,6 +570,250 @@ function buildClass(orig, cls, edits){
   return out;
 }
 
+
+/* ══════════════ компас: char[5] у <clinit> ══════════════
+   Літери сторін світу лежать не в рядках, а в статичному масиві char[5]
+   (Stormhold: e.O, Dawnstar: e.L), який заповнюється в <clinit>
+   послідовностями `dup; <індекс>; bipush <літера>; castore`.
+   Патч міняє ЛИШЕ ці чотири інструкції на sipush (+1 байт кожна) і
+   перераховує PC у таблиці винятків, StackMap та LineNumberTable.
+   Якщо в методі знайдеться перехід або switch, що перетинає точку зміни,
+   патч не застосовується взагалі. */
+const DIRS = ['', 'північ', 'схід', 'південь', 'захід'];
+
+function decodeCode(code){
+  const v=new DataView(code.buffer, code.byteOffset, code.byteLength);
+  const out=[]; let i=0;
+  while(i<code.length){
+    const op=code[i]; let n;
+    if(op===0xc4) n = code[i+1]===0x84 ? 6 : 4;
+    else if(op===0xaa||op===0xab){
+      let j=i+1; while(j%4) j++;
+      if(op===0xaa){ const lo=v.getInt32(j+4), hi=v.getInt32(j+8); n=(j+12+4*(hi-lo+1))-i; }
+      else { n=(j+8+8*v.getInt32(j+4))-i; }
+    }
+    else if(OP_NONE.has(op)) n=1;
+    else if(OP_1.has(op)) n=2;
+    else if(OP_2.has(op)) n=3;
+    else if(OP_4.has(op)) n=5;
+    else if(op===0xc5) n=4;
+    else throw new Error('невідомий опкод 0x'+op.toString(16));
+    out.push({o:i,n}); i+=n;
+  }
+  return out;
+}
+
+/* обхід членів класу; повертає позиції Code для <clinit> */
+function findClinit(d, cls){
+  const v=new DataView(d.buffer,d.byteOffset,d.byteLength);
+  let p=cls.cpEnd+6;
+  p += 2 + 2*v.getUint16(p);
+  for(const sect of [0,1]){
+    const c=v.getUint16(p); p+=2;
+    for(let m=0;m<c;m++){
+      const ni=v.getUint16(p+2), di=v.getUint16(p+4); p+=6;
+      const name=cls.cp[ni]&&cls.cp[ni].text, desc=cls.cp[di]&&cls.cp[di].text;
+      const ac=v.getUint16(p); p+=2;
+      for(let a=0;a<ac;a++){
+        const an=cls.cp[v.getUint16(p)] && cls.cp[v.getUint16(p)].text;
+        const len=v.getUint32(p+2);
+        if(sect===1 && name==='<clinit>' && desc==='()V' && an==='Code')
+          return {attrStart:p, attrLen:len, bodyStart:p+6};
+        p+=6+len;
+      }
+    }
+  }
+  return null;
+}
+
+/* шукає чотири літери компаса; повертає {field, sites:[{off,len,slot,ch}]} */
+function findCompass(d, cls){
+  let ci;
+  try{ ci = findClinit(d, cls); }catch(_){ return null; }
+  if(!ci) return null;
+  const v=new DataView(d.buffer,d.byteOffset,d.byteLength);
+  const codeLen=v.getUint32(ci.bodyStart+4);
+  const code=d.subarray(ci.bodyStart+8, ci.bodyStart+8+codeLen);
+  let ins;
+  try{ ins = decodeCode(code); }catch(_){ return null; }
+  const cv=new DataView(code.buffer, code.byteOffset, code.byteLength);
+
+  const cands=[];
+  for(let i=0;i<ins.length;i++){
+    if(code[ins[i].o]!==0xb3) continue;                       // putstatic
+    const fr=cls.cp[cv.getUint16(ins[i].o+1)];
+    if(!fr || fr.tag!==9) continue;
+    const nt=cls.cp[fr.b];
+    if(!nt || (cls.cp[nt.b] && cls.cp[nt.b].text)!=='[C') continue;
+    const fname = cls.cp[nt.a] && cls.cp[nt.a].text;
+
+    const sites={};
+    for(let k=Math.max(2,i-60);k<i;k++){
+      if(code[ins[k+1] ? ins[k+1].o : -1]!==0x55) continue;    // далі castore
+      if(code[ins[k-2].o]!==0x59) continue;                    // перед тим dup
+      const io=ins[k-1].o, iop=code[io];
+      let slot;
+      if(iop>=0x03 && iop<=0x08) slot=iop-0x03;
+      else if(iop===0x10) slot=cv.getInt8(io+1);
+      else continue;
+      const o=ins[k].o, op=code[o];
+      let ch;
+      if(op===0x10) ch=cv.getInt8(o+1);
+      else if(op===0x11) ch=cv.getInt16(o+1);
+      else continue;
+      if(slot>=1 && slot<=4) sites[slot]={off:o, len:ins[k].n, slot, ch:String.fromCharCode(ch)};
+    }
+    if(sites[1]&&sites[2]&&sites[3]&&sites[4]){
+      const four=[sites[1],sites[2],sites[3],sites[4]];
+      const chars=four.map(x=>x.ch).join('');
+      // або ще англійський N/E/S/W, або вже локалізований (усі чотири поза ASCII)
+      const virgin = chars==='NESW';
+      const done = four.every(x=>x.ch.codePointAt(0)>127);
+      if(virgin || done)
+        cands.push({field:fname, clinit:ci, sites:four, virgin});
+    }
+  }
+  if(!cands.length) return null;
+  cands.sort((a,b)=>(a.virgin?0:1)-(b.virgin?0:1));
+  return cands[0];
+}
+
+/* застосовує нові літери; повертає нові байти класу */
+function patchCompass(d, letters){
+  const cls=parseClass(d);
+  const info=findCompass(d, cls);
+  if(!info) throw new Error('не знайдено масив компаса');
+  const v=new DataView(d.buffer,d.byteOffset,d.byteLength);
+  const ci=info.clinit;
+  const codeLen=v.getUint32(ci.bodyStart+4);
+  const code=d.subarray(ci.bodyStart+8, ci.bodyStart+8+codeLen);
+  const cv=new DataView(code.buffer, code.byteOffset, code.byteLength);
+  const ins=decodeCode(code);
+
+  const rep=new Map();
+  info.sites.forEach(s=>{
+    const t=letters.get(s.slot);
+    if(t===undefined) return;
+    if([...t].length!==1) throw new Error('для сторони світу потрібен рівно один символ, а не «'+t+'»');
+    const cp=t.codePointAt(0);
+    if(cp>0xFFFF) throw new Error('символ поза BMP не підтримується');
+    rep.set(s.off, new Uint8Array([0x11, cp>>8, cp&255]));      // sipush
+  });
+  if(!rep.size) return d;
+
+  /* мапа старих зміщень у нові */
+  const map=new Map(); let cur=0; const pieces=[];
+  for(const r of ins){
+    map.set(r.o, cur);
+    const nb = rep.get(r.o) || code.subarray(r.o, r.o+r.n);
+    pieces.push(nb); cur += nb.length;
+  }
+  map.set(code.length, cur);
+  const mp = o => map.has(o) ? map.get(o) : null;
+
+  /* безпека: жоден перехід і жоден switch не має перетинати точку зміни */
+  for(const r of ins){
+    const op=code[r.o];
+    const crosses = t => (r.o < Math.min(...rep.keys())) !== (t < Math.min(...rep.keys()))
+                      || map.get(t)-map.get(r.o) !== t-r.o;
+    if((op>=0x99&&op<=0xa8)||op===0xc6||op===0xc7){
+      const t=r.o+cv.getInt16(r.o+1);
+      if(mp(t)===null) throw new Error('перехід у невідому ціль');
+      if(map.get(t)-map.get(r.o) !== t-r.o)
+        throw new Error('перехід перетинає точку зміни — патч скасовано');
+    } else if(op===0xc8||op===0xc9){
+      const t=r.o+cv.getInt32(r.o+1);
+      if(mp(t)===null || map.get(t)-map.get(r.o) !== t-r.o)
+        throw new Error('широкий перехід перетинає точку зміни — патч скасовано');
+    } else if(op===0xaa||op===0xab){
+      throw new Error('у методі є switch — патч скасовано');
+    }
+  }
+
+  const newCode=new Uint8Array(cur); let o=0;
+  for(const pc of pieces){ newCode.set(pc,o); o+=pc.length; }
+
+  /* перезбирання Code */
+  const body=d.subarray(ci.bodyStart, ci.bodyStart+ci.attrLen);
+  const bv=new DataView(body.buffer, body.byteOffset, body.byteLength);
+  const out=[];
+  const head=new Uint8Array(8); const hv=new DataView(head.buffer);
+  hv.setUint16(0, bv.getUint16(0)); hv.setUint16(2, bv.getUint16(2));
+  hv.setUint32(4, newCode.length);
+  out.push(head, newCode);
+
+  let q=8+codeLen;
+  const et=bv.getUint16(q); q+=2;
+  const exc=new Uint8Array(2+8*et); const ev=new DataView(exc.buffer);
+  ev.setUint16(0, et);
+  for(let i=0;i<et;i++){
+    const s=bv.getUint16(q), e=bv.getUint16(q+2), h=bv.getUint16(q+4), ct=bv.getUint16(q+6);
+    for(const x of [s,e,h]) if(mp(x)===null) throw new Error('таблиця винятків указує в середину інструкції');
+    ev.setUint16(2+8*i, mp(s)); ev.setUint16(4+8*i, mp(e));
+    ev.setUint16(6+8*i, mp(h)); ev.setUint16(8+8*i, ct);
+    q+=8;
+  }
+  out.push(exc);
+
+  const na=bv.getUint16(q); q+=2;
+  const nah=new Uint8Array(2); new DataView(nah.buffer).setUint16(0, na);
+  out.push(nah);
+  for(let i=0;i<na;i++){
+    const anIdx=bv.getUint16(q), len=bv.getUint32(q+2);
+    const an=cls.cp[anIdx] && cls.cp[anIdx].text;
+    let sub=body.subarray(q+6, q+6+len);
+    if(an==='StackMap') sub=remapStackMap(sub, mp);
+    else if(an==='LineNumberTable') sub=remapLnt(sub, mp);
+    const hdr=new Uint8Array(6); const hv2=new DataView(hdr.buffer);
+    hv2.setUint16(0, anIdx); hv2.setUint32(2, sub.length);
+    out.push(hdr, sub);
+    q+=6+len;
+  }
+
+  let total=0; for(const c of out) total+=c.length;
+  const newBody=new Uint8Array(total); o=0;
+  for(const c of out){ newBody.set(c,o); o+=c.length; }
+
+  /* збирання класу: усе інше — байт у байт */
+  const pre=d.subarray(0, ci.attrStart+2);
+  const post=d.subarray(ci.attrStart+6+ci.attrLen);
+  const res=new Uint8Array(pre.length+4+newBody.length+post.length);
+  res.set(pre,0);
+  new DataView(res.buffer).setUint32(pre.length, newBody.length);
+  res.set(newBody, pre.length+4);
+  res.set(post, pre.length+4+newBody.length);
+  return res;
+}
+
+function remapStackMap(sub, mp){
+  const v=new DataView(sub.buffer, sub.byteOffset, sub.byteLength);
+  const out=new Uint8Array(sub.length); out.set(sub);
+  const ov=new DataView(out.buffer);
+  const n=v.getUint16(0); let i=2;
+  for(let k=0;k<n;k++){
+    const off=v.getUint16(i);
+    if(mp(off)===null) throw new Error('StackMap указує в середину інструкції');
+    ov.setUint16(i, mp(off)); i+=2;
+    for(const _ of [0,1]){
+      const cnt=v.getUint16(i); i+=2;
+      for(let j=0;j<cnt;j++) i += (sub[i]===7||sub[i]===8) ? 3 : 1;
+    }
+  }
+  if(i!==sub.length) throw new Error('StackMap розібрано некоректно');
+  return out;
+}
+function remapLnt(sub, mp){
+  const v=new DataView(sub.buffer, sub.byteOffset, sub.byteLength);
+  const out=new Uint8Array(sub.length); out.set(sub);
+  const ov=new DataView(out.buffer);
+  const n=v.getUint16(0);
+  for(let k=0;k<n;k++){
+    const pc=v.getUint16(2+4*k);
+    if(mp(pc)!==null) ov.setUint16(2+4*k, mp(pc));
+  }
+  return out;
+}
+
 /* ══════════════ службові рядки ══════════════
    Позначаються ЛИШЕ ті, що напевно не є ігровим текстом: імена ресурсів,
    URL, ключі маніфесту, порожні рядки. Плюс налагоджувальні з байткоду.
@@ -602,12 +858,18 @@ async function loadJar(file){
       e.lmp = lmp; e.parts = [];
       lmp.dir.forEach((de,i)=>{
         const sub = e.data.subarray(de.off, de.off+de.len);
-        e.parts.push({raw:sub, toks:null});
-        if(!/\.dat$/i.test(de.name)) return;
+        e.parts.push({raw:sub, toks:null, repl:null});
+        if(!/\.dat$/i.test(de.name)){
+          if(/\.png$/i.test(de.name)) P.nodes.push({path:nm+'/'+de.name, kind:'img',
+            entry:e, part:i, inLmp:true, strings:[]});
+          return;
+        }
         const toks = scanDat(sub);
         e.parts[i].toks = toks;
         addNode(nm+'/'+de.name, toks, e, i, true);
       });
+    } else if(/\.png$/i.test(nm)){
+      P.nodes.push({path:nm, kind:'img', entry:e, part:-1, inLmp:false, strings:[]});
     } else if(/\.dat$/i.test(nm)){
       const toks = scanDat(e.data); e.toks = toks;
       addNode(nm, toks, e, -1, false);
@@ -627,13 +889,19 @@ async function loadJar(file){
       const cls = parseClass(e.data);
       if(!cls || !cls.ids.length) continue;
       e.cls = cls;
+      const comp = findCompass(e.data, cls);
+      if(comp){
+        e.compass = comp;
+        P.nodes.push({path:nm+' · компас', kind:'compass', entry:e,
+          strings: comp.sites.map(s2=>({id:s2.slot, src:s2.ch, svc:false, why:''}))});
+      }
       const strings = cls.ids.map(id=>({id, src:cls.cp[id].text,
         svc: cls.debug.has(id) || isRes(cls.cp[id].text),
         why: cls.debug.has(id) ? 'лог' : 'ресурс'}));
       P.nodes.push({path:nm, kind:'class', entry:e, strings});
     }
   }
-  const ORD={mf:0, dat:1, class:2};
+  const ORD={mf:0, compass:1, dat:2, class:3, img:4};
   P.nodes.sort((a,b)=>ORD[a.kind]-ORD[b.kind]);
 
   const total = P.nodes.reduce((s,n)=>s+n.strings.length,0);
@@ -652,6 +920,7 @@ function addNode(path, toks, entry, lmpIdx, inLmp){
 
 /* ══════════════ рендер ══════════════ */
 function nodeStats(n){
+  if(n.kind==='img'){ const r=imgBytes(n); return {done: r.replaced?1:0, tot:1}; }
   let done=0, tot=0;
   for(const s of n.strings){ if(s.svc && $('#hideSvc').checked) continue; tot++;
     if(P.trans.get(key(n.path,s.id))) done++; }
@@ -659,7 +928,7 @@ function nodeStats(n){
 }
 function renderFiles(){
   const box=$('#files'); box.innerHTML='';
-  const groups=[['Маніфест',n=>n.kind==='mf'],['Дані',n=>n.kind==='dat'],['Код (.class)',n=>n.kind==='class']];
+  const groups=[['Маніфест',n=>n.kind==='mf'],['Компас',n=>n.kind==='compass'],['Дані',n=>n.kind==='dat'],['Код (.class)',n=>n.kind==='class'],['Зображення',n=>n.kind==='img']];
   for(const [title,f] of groups){
     const list=P.nodes.filter(f); if(!list.length) continue;
     const h=document.createElement('div'); h.className='eyebrow'; h.textContent=title; box.appendChild(h);
@@ -678,9 +947,72 @@ function renderFiles(){
 }
 function autosize(ta){ ta.style.height='auto'; ta.style.height=Math.max(34, ta.scrollHeight+2)+'px'; }
 
+function imgBytes(n){
+  const e=n.entry;
+  if(n.part<0) return {orig:e.data, repl:e.replPng||null, replaced:!!e.replPng};
+  const pt=e.parts[n.part];
+  return {orig:pt.raw, repl:pt.repl||null, replaced:!!pt.repl};
+}
+function setImg(n, bytes){
+  if(n.part<0) n.entry.replPng = bytes; else n.entry.parts[n.part].repl = bytes;
+}
+function pngSize(b){
+  if(b.length<24 || b[0]!==0x89 || b[1]!==0x50) return null;
+  const v=new DataView(b.buffer, b.byteOffset, b.byteLength);
+  return v.getUint32(16)+'×'+v.getUint32(20);
+}
+function renderImage(n){
+  const box=$('#rows'); box.innerHTML='';
+  const {orig, repl, replaced} = imgBytes(n);
+  const wrap=document.createElement('div'); wrap.className='imgpane';
+  const mk=(label, bytes)=>{
+    const col=document.createElement('div'); col.className='imgcol';
+    const h=document.createElement('div'); h.className='eyebrow'; h.textContent=label;
+    const im=document.createElement('img');
+    im.src=URL.createObjectURL(new Blob([bytes],{type:'image/png'}));
+    im.onload=()=>URL.revokeObjectURL(im.src);
+    const meta=document.createElement('div'); meta.className='imgmeta';
+    meta.textContent=(pngSize(bytes)||'?')+' · '+bytes.length+' Б';
+    col.append(h, im, meta); return col;
+  };
+  wrap.appendChild(mk('оригінал', orig));
+  if(repl) wrap.appendChild(mk('заміна', repl));
+  box.appendChild(wrap);
+
+  const bar=document.createElement('div'); bar.className='imgbar';
+  const bExp=document.createElement('button'); bExp.className='btn'; bExp.textContent='Витягти .png';
+  bExp.onclick=()=>download(new Blob([repl||orig],{type:'image/png'}), n.path.split('/').pop());
+  const bRep=document.createElement('button'); bRep.className='btn primary'; bRep.textContent='Замінити…';
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='image/png'; inp.hidden=true;
+  inp.onchange=async ev=>{
+    const f=ev.target.files[0]; ev.target.value=''; if(!f) return;
+    const b=new Uint8Array(await f.arrayBuffer());
+    if(!(b[0]===0x89 && b[1]===0x50)){ toast('Це не PNG'); return; }
+    if(n.inLmp && b.length>65535){ toast('У .lmp довжина запису — 2 байти, максимум 65535 Б'); return; }
+    setImg(n, b); markDirty(); renderFiles(); renderImage(n);
+    toast('Замінено: '+(pngSize(b)||'?')+', '+b.length+' Б');
+  };
+  bRep.onclick=()=>inp.click();
+  bar.append(bExp, bRep, inp);
+  if(replaced){
+    const bDel=document.createElement('button'); bDel.className='btn'; bDel.textContent='Скасувати заміну';
+    bDel.onclick=()=>{ setImg(n,null); markDirty(); renderFiles(); renderImage(n); };
+    bar.appendChild(bDel);
+  }
+  box.appendChild(bar);
+  const note=document.createElement('div'); note.className='empty';
+  note.textContent = n.inLmp
+    ? 'Запис усередині ' + n.path.split('/')[0] + ' — зміщення інших файлів перерахуються при збірці.'
+    : 'Окремий файл у .jar.';
+  box.appendChild(note);
+  $('#shown').textContent = replaced ? 'замінено' : 'без змін';
+}
+
 function renderRows(){
   const box=$('#rows'); box.innerHTML='';
   if(!P.nodes.length) return;
+  const selNode=P.nodes[P.sel];
+  if(selNode && selNode.kind==='img' && !$('#allFiles').checked){ renderImage(selNode); return; }
   const q=$('#q').value.trim().toLowerCase();
   const todo=$('#onlyTodo').checked, hide=$('#hideSvc').checked, all=$('#allFiles').checked;
   const scope = all ? P.nodes : [P.nodes[P.sel]].filter(Boolean);
@@ -706,11 +1038,13 @@ function renderRows(){
       const row=document.createElement('div');
       row.className='row'+(cur?' filled':'');
       const idx=document.createElement('div'); idx.className='idx'; idx.textContent=s.id;
+      if(n.kind==='compass'){ idx.textContent=DIRS[s.id]||s.id; idx.style.fontSize='11px'; }
       const src=document.createElement('div'); src.className='src'; src.textContent=s.src;
       if(s.svc){ const t=document.createElement('span'); t.className='tag'; t.textContent=s.why; src.appendChild(t); }
       src.title='Подвійний клік — скопіювати оригінал у поле перекладу';
       const ta=document.createElement('textarea'); ta.value=cur; ta.spellcheck=false;
-      ta.placeholder='переклад…';
+      ta.placeholder = n.kind==='compass' ? 'один символ' : 'переклад…';
+      if(n.kind==='compass') ta.maxLength=2;
       ta.oninput=()=>{
         const v=ta.value;
         if(v) P.trans.set(key(n.path,s.id), v); else P.trans.delete(key(n.path,s.id));
@@ -852,16 +1186,23 @@ async function build(){
       let data=e.data;
       if(e.lmp){
         const parts=e.parts.map((pt,i)=>{
+          if(pt.repl) return pt.repl;
           if(!pt.toks) return pt.raw;
           const m=editsFor(e.name+'/'+e.lmp.dir[i].name);
           return m.size?buildDat(pt.toks,m):pt.raw;
         });
-        if(e.parts.some((pt,i)=>pt.toks && editsFor(e.name+'/'+e.lmp.dir[i].name).size))
+        if(e.parts.some((pt,i)=>pt.repl || (pt.toks && editsFor(e.name+'/'+e.lmp.dir[i].name).size)))
           data=buildLmp(e.data, e.lmp, parts);
+      } else if(e.replPng){
+        data=e.replPng;
       } else if(e.toks){
         const m=editsFor(e.name); if(m.size) data=buildDat(e.toks,m);
       } else if(e.cls){
         const m=editsFor(e.name); if(m.size) data=buildClass(e.data, e.cls, m);
+        if(e.compass){
+          const cm=editsFor(e.name+' · компас');
+          if(cm.size) data=patchCompass(data, cm);
+        }
       } else if(e.mf){
         const m=editsFor(e.name);
         if(m.size){
